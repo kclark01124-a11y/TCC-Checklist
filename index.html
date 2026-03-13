@@ -73,8 +73,8 @@
                 
                 <img id="header-logo" src="" class="hidden h-12 w-auto mr-4 object-contain cursor-pointer" onclick="document.getElementById('logoInput').click()" title="Click to change logo">
                 
-                <div id="default-logo-text" class="bg-blue-800 p-2 rounded-lg mr-3 flex-shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95" onclick="document.getElementById('logoInput').click()" title="Click to upload company logo">
-                    <span class="text-white font-bold text-xl tracking-tighter">TCC</span>
+                <div id="default-logo-text" class="bg-blue-800 p-2 rounded-lg mr-3 flex-shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 select-none" onclick="document.getElementById('logoInput').click()" title="Click to upload company logo">
+                    <span class="text-white font-bold text-xl tracking-tighter pointer-events-none">TCC</span>
                 </div>
                 
                 <div class="w-full max-w-lg min-w-0">
@@ -254,8 +254,8 @@
     </template>
 
     <script>
-        const DB_KEY = 'tcc_checklist_data_v45_logo';
-        const META_KEY = 'tcc_checklist_meta_v45_logo';
+        const DB_KEY = 'tcc_checklist_data_v46_logo_fix';
+        const META_KEY = 'tcc_checklist_meta_v46_logo_fix';
         
         let localTasks = [];
         let metaData = { hourlyRate: 65, address: "", importedData: null, roomSizes: {}, companyLogo: null };
