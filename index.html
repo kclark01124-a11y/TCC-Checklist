@@ -262,8 +262,8 @@
     </template>
 
     <script>
-        const DB_KEY = 'tcc_checklist_data_v53_import_export';
-        const META_KEY = 'tcc_checklist_meta_v53_import_export';
+        const DB_KEY = 'tcc_checklist_data_v54_fix';
+        const META_KEY = 'tcc_checklist_meta_v54_fix';
         
         let localTasks = [];
         let metaData = { hourlyRate: 65, address: "", importedData: null, roomSizes: {}, companyLogo: null };
@@ -566,3 +566,884 @@
 
             if (d.includes('door alignment') || d.includes('adjust door') || d.includes('shave') || d.includes('fit/finish')) return 0.5;
             if (d.includes('lockbox') || d.includes('padlock')) return 0.5;
+            if (d.includes('deadbolt') || d.includes('knob') || d.includes('lock set') || d.includes('hardware') || d.includes('lock')) return 0.5;
+            if (d.includes('rekey')) return 0.5;
+            if (d.includes('hinge')) return 0.5;
+            if (d.includes('door')) return 1.5;
+            
+            if (d.includes('toilet seat')) return 0.3;
+            if (d.includes('faucet') || d.includes('leak') || d.includes('drain') || d.includes('clog')) return 0.5;
+            if (d.includes('caulk')) return 0.5;
+            if (d.includes('shut-off') || d.includes('shut off') || d.includes('valve')) return 0.5;
+
+            if (d.includes('ceiling fan')) return 1.5;
+            if (d.includes('light fixture') || d.includes('fixture') || d.includes('lighting')) return 0.25;
+            if (d.includes('outlet') || d.includes('switch') || d.includes('gfci')) return 0.25;
+            if (d.includes('detector') || d.includes('bulb') || d.includes('battery')) return 0.2;
+
+            if (t.includes('drywall') || d.includes('patch') || d.includes('hole') || d.includes('mud') || d.includes('tape')) {
+                 if (d.includes('> 4') || d.includes('large')) return 1.5;
+                 if (d.includes('< 4') || d.includes('small')) return 0.8;
+                 if (d.includes('nail')) return 0.3;
+                 return 1.0;
+            }
+
+            if (d.includes('extermination') || d.includes('pest') || d.includes('mice') || d.includes('roach') || d.includes('wildlife')) return 0; 
+            
+            if ((d.includes('trash') || t.includes('trash') || d.includes('remove') || d.includes('haul') || d.includes('dispose') || d.includes('debris') || d.includes('load') || d.includes('dumpster') || d.includes('trash out')) && (d.includes('appliance') || d.includes('fridge') || d.includes('stove') || d.includes('range') || d.includes('washer') || d.includes('dryer') || d.includes('oven'))) {
+                return 0.25;
+            }
+            if (d.includes('trash') || t.includes('trash') || d.includes('debris') || d.includes('load') || d.includes('dumpster') || d.includes('trash out')) {
+                return 1.0;
+            }
+            if (t.includes('clean') || d.includes('cleaning') || d.includes('clean') || d.includes('wipe')) {
+                return 0; 
+            }
+            
+            if (d.includes('thermostat')) return 0.5;
+            if (d.includes('filter') || d.includes('register') || d.includes('vent')) return 0.3;
+
+            if (d.includes('soil') || d.includes('mulch') || d.includes('dirt') || d.includes('limestone') || d.includes('asphalt')) return 2.0;
+
+            return 1.0;
+        }
+
+        function renderDatalists() {
+            // No longer needed since we are using custom dropdowns, but keeping it empty to prevent errors if called elsewhere
+        }
+        
+        renderAll();
+
+        window.handleFileUpload = (input) => {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) { 
+                processCSV(e.target.result); 
+                input.value = ''; 
+            };
+            reader.readAsText(file);
+        };
+
+        function processCSV(text) {
+            const lines = text.replace(/\r\n/g, '\n').split('\n');
+            const newData = {};
+            let currentCategory = "General";
+            let importedCount = 0;
+            let hoursColIndex = -1;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if(!line) continue;
+                const cols = parseCSVLine(line);
+                if(cols.length < 2) continue;
+
+                if(cols[2] && (cols[2].toLowerCase().includes('scope detail') || cols[3]?.toLowerCase().includes('unit cost'))) {
+                    if(cols[0] && cols[0].trim() !== '') {
+                        currentCategory = cols[0].replace(/"/g, '').trim();
+                        if(!newData[currentCategory]) newData[currentCategory] = [];
+                    }
+                    for(let j=0; j<cols.length; j++) {
+                        if(cols[j] && (cols[j].toLowerCase().includes('hour') || cols[j].toLowerCase().includes('hrs'))) {
+                            hoursColIndex = j;
+                        }
+                    }
+                } 
+                else {
+                    let desc = cols[2];
+                    let priceStr = cols[3] ? cols[3].replace(/[$,"]/g, '') : "0";
+                    let price = parseFloat(priceStr);
+
+                    if(desc && !isNaN(price)) {
+                        if(desc.toLowerCase() !== 'scope detail' && desc.toLowerCase() !== 'unit cost') {
+                            if(!newData[currentCategory]) newData[currentCategory] = [];
+                            
+                            const subCat = cols[0];
+                            let fullDesc = desc.replace(/"/g, '').trim(); 
+                            
+                            if(subCat && subCat !== "" && subCat.toLowerCase().trim() !== currentCategory.toLowerCase()) {
+                                fullDesc = `${subCat.trim()} - ${fullDesc}`;
+                            }
+
+                            let baseHrs = "";
+                            if(hoursColIndex > -1 && cols[hoursColIndex]) {
+                                const parsedHr = parseFloat(cols[hoursColIndex].replace(/[^0-9.]/g, ''));
+                                if(!isNaN(parsedHr)) baseHrs = parsedHr;
+                            }
+                            
+                            if (fullDesc.toLowerCase().includes('lvp install vinyl plank')) {
+                                price = 6.00;
+                                baseHrs = 0;
+                            } else if (baseHrs === "") {
+                                baseHrs = estimateHours(fullDesc, currentCategory);
+                            }
+
+                            newData[currentCategory].push({ d: fullDesc, p: price, h: baseHrs });
+                            importedCount++;
+                        }
+                    }
+                }
+            }
+
+            if(!newData["Labor"]) newData["Labor"] = [{ d: "General Labor Hours", p: 65, h: 1 }];
+
+            if(importedCount > 0) {
+                TCC_DATA_SOURCE = newData;
+                TRADE_KEYS = Object.keys(TCC_DATA_SOURCE).sort();
+                metaData.importedData = newData;
+                
+                localTasks.forEach(task => {
+                    if (task.category !== "Labor" && task.description) {
+                        let foundItem = null;
+                        let foundTrade = task.trade || "General";
+                        const exactDesc = task.description.toLowerCase().trim();
+                        
+                        if (TCC_DATA_SOURCE[foundTrade]) {
+                            foundItem = TCC_DATA_SOURCE[foundTrade].find(item => item.d.toLowerCase().trim() === exactDesc);
+                        }
+                        
+                        if (!foundItem) {
+                            for (const t in TCC_DATA_SOURCE) {
+                                foundItem = TCC_DATA_SOURCE[t].find(item => item.d.toLowerCase().trim() === exactDesc);
+                                if (foundItem) {
+                                    task.trade = t;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (foundItem) {
+                            task.price = foundItem.p;
+                            if (task.manualHours === "" || task.manualHours === undefined) {
+                                task.baseHours = foundItem.h !== "" ? foundItem.h : estimateHours(task.description, task.trade);
+                            }
+                        } 
+                        
+                        if (exactDesc.includes('lvp install vinyl plank')) {
+                            task.price = 6.00;
+                            task.baseHours = 0;
+                        }
+                    }
+                });
+
+                saveData();
+                refreshTotals();
+                renderAll();
+                alert(`Success! Imported ${importedCount} items.`);
+            } else {
+                alert("Import failed. Check file format.");
+            }
+        }
+
+        function parseCSVLine(str) {
+            const arr = [];
+            let quote = false;
+            let col = "";
+            for (let c = 0; c < str.length; c++) {
+                let cc = str[c];
+                if (cc === '"') { quote = !quote; } 
+                else if (cc === ',' && !quote) { arr.push(col); col = ""; } 
+                else { col += cc; }
+            }
+            arr.push(col);
+            return arr;
+        }
+
+        function saveData() {
+            try {
+                const safeTasks = localTasks.map(t => {
+                    let copy = { ...t };
+                    delete copy.photoData; 
+                    return copy;
+                });
+                
+                localStorage.setItem(DB_KEY, JSON.stringify(safeTasks));
+                localStorage.setItem(META_KEY, JSON.stringify(metaData));
+                const el = document.getElementById('save-status');
+                if (el) el.textContent = 'Saved locally';
+            } catch (e) {
+                const el = document.getElementById('save-status');
+                if (el) el.textContent = 'Ready (No Saving)';
+            }
+            setTimeout(() => {
+                const el = document.getElementById('save-status');
+                if(el && el.textContent === 'Saved locally') el.textContent = 'Ready';
+            }, 1000);
+        }
+
+        window.saveTeamApp = function() {
+            try {
+                let html = document.documentElement.outerHTML;
+                const dataStr = JSON.stringify(TCC_DATA_SOURCE);
+                const logoStr = metaData.companyLogo ? `"${metaData.companyLogo}"` : "null";
+                
+                const startMarker = "/* DATA" + "_START */";
+                const endMarker = "/* DATA" + "_END */";
+                const parts = html.split(startMarker);
+                
+                if (parts.length < 2) {
+                    alert("Could not generate file. Data anchors missing.");
+                    return;
+                }
+                
+                const secondHalf = parts[1].split(endMarker);
+                let midHtml = parts[0] + startMarker + "\n        let TCC_DATA_SOURCE = " + dataStr + ";\n        " + endMarker + secondHalf[1];
+                
+                const logoStart = "/* LOGO" + "_START */";
+                const logoEnd = "/* LOGO" + "_END */";
+                const logoParts = midHtml.split(logoStart);
+                
+                if (logoParts.length >= 2) {
+                    const logoSecond = logoParts[1].split(logoEnd);
+                    midHtml = logoParts[0] + logoStart + "\n        let BAKED_LOGO = " + logoStr + ";\n        " + logoEnd + logoSecond[1];
+                }
+                
+                const blob = new Blob([midHtml], {type: 'text/html'});
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'TCC_Team_Checklist.html';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+            } catch(e) {
+                alert("Error saving Team App: " + e.message);
+            }
+        };
+
+        function refreshTotals() {
+            let calcHours = 0;
+            localTasks.forEach(task => {
+                if(task.selected && task.category !== "Labor") {
+                    let q = parseFloat(task.quantity);
+                    if(isNaN(q)) q = 0; 
+                    
+                    let itemHrs = 0;
+                    if (task.manualHours !== undefined && task.manualHours !== "") {
+                        itemHrs = parseFloat(task.manualHours) || 0;
+                    } else if (task.baseHours && task.baseHours !== "") {
+                        itemHrs = parseFloat(task.baseHours) * q;
+                    }
+                    calcHours += itemHrs;
+                }
+            });
+            
+            calcHours = Math.round(calcHours * 10) / 10;
+            
+            let laborTask = localTasks.find(t => t.category === "Labor" && t.description === "General Labor Hours");
+            if(laborTask) {
+                laborTask.quantity = calcHours;
+                if (calcHours > 0 && !laborTask.selected) laborTask.selected = true;
+                else if (calcHours === 0 && laborTask.selected) laborTask.selected = false;
+                
+                const lQty = document.getElementById(`qty-${laborTask.id}`);
+                if (lQty && document.activeElement !== lQty) lQty.value = calcHours;
+                
+                const lCb = document.getElementById(`cb-${laborTask.id}`);
+                if (lCb) lCb.checked = laborTask.selected;
+                
+                const lRow = document.getElementById(`row-${laborTask.id}`);
+                if (lRow) {
+                    if (laborTask.selected) {
+                         lRow.classList.remove("opacity-50", "bg-gray-50", "border-gray-100");
+                         lRow.classList.add("selected-row", "bg-white", "border-indigo-200");
+                    } else {
+                         lRow.classList.remove("selected-row", "bg-white", "border-indigo-200");
+                         lRow.classList.add("opacity-50", "bg-gray-50", "border-gray-100");
+                    }
+                }
+            }
+            
+            let totals = { mat: 0, active: 0, cost: 0, hours: calcHours };
+            const tradeTotals = {};
+            const catSubtotals = {};
+            const catCounts = {};
+            ROOM_CATEGORIES.forEach(c => { catSubtotals[c] = 0; catCounts[c] = 0; });
+
+            localTasks.forEach(task => {
+                const qty = parseFloat(task.quantity) || 0;
+                const price = parseFloat(task.price) || 0;
+                const lineTotal = price * qty;
+                
+                const totalEl = document.getElementById(`total-${task.id}`);
+                if (totalEl) {
+                    const amtSpan = totalEl.querySelector('.line-total-amt');
+                    if(amtSpan) amtSpan.textContent = `$${lineTotal.toFixed(2)}`;
+                    
+                    if (task.selected) {
+                        totalEl.classList.remove("text-gray-400");
+                        totalEl.classList.add("text-gray-900");
+                    } else {
+                        totalEl.classList.remove("text-gray-900");
+                        totalEl.classList.add("text-gray-400");
+                    }
+                }
+
+                if(task.selected) {
+                    totals.active++;
+                    totals.cost += lineTotal;
+                    
+                    const t = task.trade || "General";
+                    if(!tradeTotals[t]) tradeTotals[t] = 0;
+                    tradeTotals[t] += lineTotal;
+
+                    const cat = task.category || "General / Safety";
+                    if (catSubtotals[cat] !== undefined) {
+                        catSubtotals[cat] += lineTotal;
+                        catCounts[cat]++;
+                    }
+                }
+            });
+
+            ROOM_CATEGORIES.forEach(cat => {
+                const safeCatId = cat.replace(/[^a-zA-Z0-9]/g, '');
+                const catTotalEl = document.getElementById(`cat-total-${safeCatId}`);
+                if (catTotalEl) catTotalEl.textContent = `$${catSubtotals[cat].toFixed(2)}`;
+                
+                const catCountEl = document.getElementById(`cat-count-${safeCatId}`);
+                if (catCountEl) catCountEl.textContent = `${catCounts[cat]} items selected`;
+            });
+
+            renderSummary(tradeTotals, totals.cost, totals.hours);
+            updateStats(totals);
+        }
+
+        function renderAll() {
+            const container = document.getElementById('categories-container');
+            container.innerHTML = '';
+            
+            let calcHours = 0;
+            localTasks.forEach(task => {
+                if(task.selected && task.category !== "Labor") {
+                    let q = parseFloat(task.quantity);
+                    if(isNaN(q)) q = 0;
+
+                    let itemHrs = 0;
+                    if (task.manualHours !== undefined && task.manualHours !== "") {
+                        itemHrs = parseFloat(task.manualHours) || 0;
+                    } else if (task.baseHours && task.baseHours !== "") {
+                        itemHrs = parseFloat(task.baseHours) * q;
+                    }
+                    calcHours += itemHrs;
+                }
+            });
+            
+            calcHours = Math.round(calcHours * 10) / 10;
+            
+            let needsSave = false;
+            let laborTask = localTasks.find(t => t.category === "Labor" && t.description === "General Labor Hours");
+            
+            if(laborTask) {
+                if(parseFloat(laborTask.quantity) !== calcHours) {
+                    laborTask.quantity = calcHours;
+                    needsSave = true;
+                }
+                if (calcHours > 0 && !laborTask.selected) {
+                    laborTask.selected = true;
+                    needsSave = true;
+                } else if (calcHours === 0 && laborTask.selected) {
+                    laborTask.selected = false;
+                    needsSave = true;
+                }
+            } else if (calcHours > 0) {
+                let laborPrice = 65;
+                if (TCC_DATA_SOURCE["Labor"]) {
+                    const lItem = TCC_DATA_SOURCE["Labor"].find(i => i.d === "General Labor Hours");
+                    if (lItem && lItem.p) laborPrice = lItem.p;
+                }
+                localTasks.push({
+                    id: Date.now().toString() + "_labor",
+                    category: "Labor", trade: "Labor", description: "General Labor Hours", 
+                    quantity: calcHours, price: laborPrice, manualHours: "", baseHours: "", 
+                    selected: true, photoData: [], createdAt: new Date().toISOString()
+                });
+                needsSave = true;
+            }
+            if(needsSave) saveData();
+            
+            const grouped = {};
+            ROOM_CATEGORIES.forEach(c => grouped[c] = []);
+            let totals = { mat: 0, active: 0, cost: 0, hours: calcHours };
+            const tradeTotals = {};
+
+            localTasks.forEach(task => {
+                const cat = grouped[task.category] ? task.category : "General / Safety";
+                if(grouped[cat]) grouped[cat].push(task);
+                else { if(!grouped["General / Safety"]) grouped["General / Safety"]=[]; grouped["General / Safety"].push(task); }
+
+                if(task.selected) {
+                    totals.active++;
+                    const qty = parseFloat(task.quantity) || 0;
+                    const price = parseFloat(task.price) || 0;
+                    const lineTotal = price * qty;
+                    totals.cost += lineTotal;
+                    
+                    const tradeName = task.trade || "General";
+                    if(!tradeTotals[tradeName]) tradeTotals[tradeName] = 0;
+                    tradeTotals[tradeName] += lineTotal;
+                }
+            });
+
+            const template = document.getElementById('category-template');
+            
+            ROOM_CATEGORIES.forEach(category => {
+                const items = grouped[category];
+                if(viewMode === 'selected' && items.filter(t => t.selected).length === 0) return;
+
+                const section = template.content.cloneNode(true);
+                let catSubtotal = 0, catCount = 0;
+                
+                const safeCatId = category.replace(/[^a-zA-Z0-9]/g, '');
+
+                section.querySelector('.category-title').textContent = category;
+                
+                const sizeInput = section.querySelector('.room-size-input');
+                sizeInput.value = metaData.roomSizes[category] || '';
+                const printTitle = section.querySelector('.category-title-print');
+                printTitle.textContent = category + (metaData.roomSizes[category] ? ` - Size: ${metaData.roomSizes[category]}` : '');
+                
+                sizeInput.oninput = (e) => {
+                    metaData.roomSizes[category] = e.target.value;
+                    saveData();
+                    printTitle.textContent = category + (e.target.value ? ` - Size: ${e.target.value}` : '');
+                };
+
+                const addBtn = section.querySelector('.add-btn');
+                addBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.addItem(category);
+                });
+
+                const tbody = section.querySelector('.task-list-body');
+                items.forEach(task => {
+                    if(viewMode === 'selected' && !task.selected) return;
+                    
+                    if(task.selected) {
+                        catCount++;
+                        catSubtotal += (parseFloat(task.price)||0) * (parseFloat(task.quantity)||1);
+                    }
+                    tbody.appendChild(createRow(task));
+                });
+
+                const countNode = section.querySelector('.item-count');
+                if (countNode) {
+                    countNode.id = `cat-count-${safeCatId}`;
+                    countNode.textContent = `${catCount} items selected`;
+                }
+
+                const catTotalEl = section.querySelector('.category-total');
+                if (catTotalEl) {
+                    catTotalEl.id = `cat-total-${safeCatId}`;
+                    catTotalEl.textContent = `$${catSubtotal.toFixed(2)}`;
+                }
+                
+                container.appendChild(section);
+            });
+
+            renderSummary(tradeTotals, totals.cost, totals.hours);
+            updateStats(totals);
+        }
+
+        function renderSummary(tradeTotals, grandTotal, totalHours) {
+            const summaryContainer = document.getElementById('trade-summary-container');
+            const trades = Object.keys(tradeTotals).sort();
+            
+            if(trades.length === 0) {
+                summaryContainer.innerHTML = '';
+                return;
+            }
+
+            let summaryHtml = `
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8 break-inside-avoid print:mt-8 contractor-hide">
+                    <div class="bg-gray-100 px-4 sm:px-6 py-3 border-b border-gray-200 flex justify-between">
+                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wide">Summary by Type</h2>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-100">
+                            <tbody class="divide-y divide-gray-50 bg-white">
+            `;
+
+            trades.forEach(trade => {
+                summaryHtml += `
+                    <tr>
+                        <td class="px-4 sm:px-6 py-3 text-sm font-medium text-gray-700">${trade}</td>
+                        <td class="px-4 sm:px-6 py-3 text-sm font-bold text-gray-900 text-right w-[150px]">$${tradeTotals[trade].toFixed(2)}</td>
+                    </tr>
+                `;
+            });
+
+            summaryHtml += `
+                            <tr class="bg-gray-50">
+                                <td class="px-4 sm:px-6 py-3 text-xs font-bold text-orange-600 uppercase text-right">Total Est. Labor Hours</td>
+                                <td class="px-4 sm:px-6 py-3 text-sm font-bold text-orange-600 text-right">${totalHours.toFixed(1)} hrs</td>
+                            </tr>
+                            <tr class="bg-gray-100 border-t-2 border-gray-200">
+                                <td class="px-4 sm:px-6 py-3 text-sm font-bold text-gray-900 uppercase text-right">Invoice Total</td>
+                                <td class="px-4 sm:px-6 py-3 text-lg font-bold text-blue-700 text-right">$${grandTotal.toFixed(2)}</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            
+            summaryContainer.innerHTML = summaryHtml;
+        }
+
+        function createRow(task) {
+            const outerContainer = document.createElement('div');
+            outerContainer.id = `row-${task.id}`;
+            outerContainer.className = (task.selected ? "selected-row bg-white sm:hover:bg-indigo-50 border-indigo-200" : "opacity-50 hover:opacity-100 bg-gray-50 border-gray-100") + " task-row transition-colors border-b";
+
+            let badgeClass = "text-gray-600 bg-gray-100 border-gray-200";
+            const t = task.trade || "General";
+            if(t.toLowerCase().includes('door')) badgeClass = "text-blue-700 bg-blue-100 border-blue-200";
+
+            const qty = parseFloat(task.quantity) || 0;
+            const price = parseFloat(task.price) || 0;
+            const lineTotal = price * qty;
+
+            const inputClass = task.selected ? "input-bare font-medium text-gray-800" : "input-bare text-gray-500 italic";
+            const isAutoLabor = (task.category === "Labor" && task.description === "General Labor Hours");
+
+            const qtyInputParams = isAutoLabor 
+                 ? `readonly title="Auto-calculated from Est Hrs" class="w-full text-center input-bare font-bold text-gray-400 bg-gray-100 rounded print:bg-transparent print:hidden cursor-not-allowed"` 
+                 : `class="w-full text-center input-bare font-bold text-indigo-600 bg-indigo-50 rounded print:bg-transparent print:hidden"`;
+
+            let options = TRADE_KEYS.map(trade => `<option value="${trade}" ${trade === t ? 'selected' : ''}>${trade}</option>`).join('');
+
+            const hasPhotos = Array.isArray(task.photoData) && task.photoData.length > 0;
+            let photosHtml = '';
+            
+            if (hasPhotos) {
+                photosHtml = '<div class="flex flex-wrap gap-4 mt-2">';
+                task.photoData.forEach((photo, index) => {
+                    photosHtml += `
+                        <div class="flex flex-col items-center">
+                            <img src="${photo}" class="max-h-48 sm:max-h-64 rounded border border-gray-200 object-contain print:max-h-[250px] print:border-none print:my-2 shadow-sm print:shadow-none">
+                            <button type="button" onclick="window.removePhoto('${task.id}', ${index})" class="text-xs font-bold text-red-500 mt-2 no-print hover:underline px-2 py-1 bg-red-50 rounded border border-red-100">Remove</button>
+                        </div>
+                    `;
+                });
+                photosHtml += '</div>';
+            }
+
+            outerContainer.innerHTML = `
+                <div class="flex flex-wrap sm:flex-nowrap p-2 sm:p-0">
+                    <div class="w-full sm:w-12 px-2 py-2 flex items-center justify-between sm:justify-center border-b sm:border-b-0 sm:border-r border-gray-100 mb-2 sm:mb-0">
+                        <span class="sm:hidden text-xs font-bold text-gray-500 uppercase">Include Task</span>
+                        <input type="checkbox" id="cb-${task.id}" class="custom-checkbox" ${task.selected ? 'checked' : ''} onchange="window.updateTask('${task.id}', 'selected', this.checked)">
+                    </div>
+                    
+                    <div class="w-full sm:w-32 px-2 py-2 flex flex-col justify-center border-b sm:border-b-0 border-gray-100 mb-2 sm:mb-0">
+                        <span class="sm:hidden text-[10px] font-bold text-gray-400 uppercase mb-1">Trade Category</span>
+                        <select id="trade-${task.id}" class="trade-select block w-full text-sm sm:text-xs font-semibold rounded p-2 sm:p-1.5 border border-gray-200 sm:border-transparent focus:border-indigo-300 print:hidden ${badgeClass}" onchange="window.handleTradeChange('${task.id}', this)">
+                            ${options}
+                        </select>
+                        <div class="hidden print:block text-xs font-bold text-gray-700 uppercase">${t}</div>
+                    </div>
+                    
+                    <div class="relative w-full sm:flex-1 px-2 py-2 flex flex-col justify-center border-b sm:border-b-0 border-gray-100 mb-2 sm:mb-0 min-w-0">
+                        <span class="sm:hidden text-[10px] font-bold text-gray-400 uppercase mb-1">Description</span>
+                        <div class="relative w-full">
+                            <input type="text" id="desc-${task.id}" class="${inputClass} print:hidden text-base sm:text-sm border border-gray-200 sm:border-none p-2 sm:p-0 rounded pr-8" placeholder="Describe item..." value="${escapeHtml(task.description)}" 
+                                onfocus="window.showDropdown('${task.id}')" 
+                                oninput="window.filterDropdown('${task.id}', this.value)" 
+                                onblur="window.hideDropdown('${task.id}')"
+                                autocomplete="off">
+                            <svg onclick="document.getElementById('desc-${task.id}').focus()" class="w-4 h-4 text-gray-400 absolute right-2 top-1/2 transform -translate-y-1/2 cursor-pointer print:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </div>
+                        <div id="dropdown-${task.id}" class="absolute top-full left-0 right-0 z-[100] bg-white border border-gray-200 max-h-56 overflow-y-auto hidden shadow-2xl rounded-md mt-1 no-print divide-y divide-gray-100"></div>
+                        <div class="hidden print:block text-sm text-gray-900 whitespace-normal break-words">${escapeHtml(task.description)}</div>
+                    </div>
+                    
+                    <div class="w-1/2 sm:w-20 px-1 py-2 flex flex-col items-center justify-center">
+                        <span class="sm:hidden text-[10px] font-bold text-gray-400 uppercase mb-1">Qty</span>
+                        <input type="number" id="qty-${task.id}" min="0" step="0.5" ${qtyInputParams} value="${task.quantity||0}" oninput="window.updateTask('${task.id}', 'quantity', this.value)">
+                        <div class="hidden print:block text-sm text-gray-900 font-bold">${task.quantity||0}</div>
+                    </div>
+                    
+                    <div class="w-1/2 sm:w-28 px-1 py-2 flex flex-col items-center justify-center border-l border-gray-100 sm:border-none price-col">
+                        <span class="sm:hidden text-[10px] font-bold text-gray-400 uppercase mb-1">Price $</span>
+                        <input type="number" id="price-${task.id}" step="0.01" class="input-bare text-center sm:text-right font-mono text-gray-600 print:hidden w-full text-base sm:text-sm" value="${task.price}" oninput="window.updateTask('${task.id}', 'price', this.value)">
+                        <div class="hidden print:block text-sm text-gray-900">$${price.toFixed(2)}</div>
+                    </div>
+                    
+                    <div id="total-${task.id}" class="w-2/3 sm:w-32 px-2 py-3 flex items-center justify-start sm:justify-end text-lg sm:text-sm font-bold ${task.selected ? 'text-gray-900' : 'text-gray-400'} font-mono mt-2 sm:mt-0 border-t border-gray-100 sm:border-none total-col">
+                        <span class="sm:hidden text-[10px] font-bold text-gray-500 uppercase mr-3 mt-1">Total:</span>
+                        <span class="line-total-amt">$${lineTotal.toFixed(2)}</span>
+                    </div>
+                    
+                    <div class="w-1/3 sm:w-24 px-1 py-2 flex items-center justify-between sm:justify-center sm:space-x-1 no-print mt-2 sm:mt-0 border-t border-gray-100 sm:border-none">
+                        <input type="file" id="camera-${task.id}" accept="image/*" capture="environment" class="hidden" onchange="window.handlePhotoUpload('${task.id}', this)">
+                        <button type="button" id="photo-btn-${task.id}" onclick="document.getElementById('camera-${task.id}').click()" class="text-gray-400 sm:hover:text-blue-500 p-2 sm:p-1.5 bg-gray-100 sm:bg-transparent rounded flex justify-center active:bg-gray-200 transition-colors ${hasPhotos ? 'text-blue-600' : ''}">
+                            <svg class="w-6 h-6 sm:w-5 sm:h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        </button>
+                        <button type="button" onclick="window.deleteTask(event, '${task.id}')" class="text-gray-400 sm:hover:text-red-500 p-2 sm:p-1.5 bg-gray-100 sm:bg-transparent rounded flex justify-center active:bg-gray-200 transition-colors">
+                            <svg class="w-6 h-6 sm:w-5 sm:h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="photo-container-${task.id}" class="${hasPhotos ? 'block' : 'hidden'} w-full p-2 bg-slate-50 border-t border-gray-100 print:bg-transparent print:border-none print:p-0">
+                    ${photosHtml}
+                </div>
+            `;
+            return outerContainer;
+        }
+
+        function updateStats(totals) {
+            const safeSetText = (id, text) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = text;
+            };
+
+            safeSetText('active-count', totals.active || 0);
+            safeSetText('dashboard-hours', `${(totals.hours || 0).toFixed(1)} hrs`);
+            
+            const rate = parseFloat(metaData.hourlyRate) || 65;
+            const laborTotal = ((totals.hours || 0) * rate) || 0;
+            let matTotal = (totals.cost || 0) - laborTotal;
+            if (matTotal < 0) matTotal = 0; 
+            
+            safeSetText('total-materials', `$${matTotal.toFixed(2)}`);
+            safeSetText('total-labor-cost', `$${laborTotal.toFixed(2)}`);
+            
+            safeSetText('dashboard-total', `$${(totals.cost || 0).toFixed(2)}`);
+            safeSetText('grand-total', `$${(totals.cost || 0).toFixed(2)}`);
+            safeSetText('print-total', `$${(totals.cost || 0).toFixed(2)}`);
+            
+            const addrEl = document.getElementById('property-address');
+            safeSetText('print-address-display', addrEl ? addrEl.value : "Property Address");
+            safeSetText('print-date', new Date().toLocaleDateString());
+        }
+
+        window.updateTask = (id, field, value) => {
+            const task = localTasks.find(t => t.id === id);
+            if(task) {
+                if (String(task[field]) === String(value) && field !== 'selected') return;
+
+                task[field] = value;
+                
+                const tr = document.getElementById(`row-${id}`);
+
+                if (field === 'selected') {
+                    if (tr) {
+                        if(value) {
+                             tr.classList.remove("opacity-50", "bg-gray-50", "border-gray-100");
+                             tr.classList.add("selected-row", "bg-white", "border-indigo-200");
+                        } else {
+                             tr.classList.remove("selected-row", "bg-white", "border-indigo-200");
+                             tr.classList.add("opacity-50", "bg-gray-50", "border-gray-100");
+                        }
+                        if (viewMode === 'selected' && !value) tr.style.display = 'none';
+                    }
+                    const cb = document.getElementById(`cb-${id}`);
+                    if(cb) cb.checked = value;
+                } else if (!task.selected && field !== 'manualHours') {
+                    task.selected = true; 
+                    const cb = document.getElementById(`cb-${id}`);
+                    if(cb) cb.checked = true;
+                    if(tr) {
+                         tr.classList.remove("opacity-50", "bg-gray-50", "border-gray-100");
+                         tr.classList.add("selected-row", "bg-white", "border-indigo-200");
+                    }
+                }
+                
+                if (field === 'description') {
+                    const trade = task.trade || "General";
+                    const descLower = value.toLowerCase().trim();
+                    let actualTrade = trade;
+                    
+                    let foundItem = null;
+                    if (TCC_DATA_SOURCE[trade]) {
+                        foundItem = TCC_DATA_SOURCE[trade].find(item => item.d.toLowerCase().trim() === descLower);
+                    }
+                    
+                    if (!foundItem) {
+                        for (const t in TCC_DATA_SOURCE) {
+                            foundItem = TCC_DATA_SOURCE[t].find(item => item.d.toLowerCase().trim() === descLower);
+                            if (foundItem) {
+                                actualTrade = t;
+                                task.trade = t;
+                                const selectEl = document.getElementById(`trade-${id}`);
+                                if (selectEl) {
+                                    selectEl.value = t;
+                                    const badgeClass = t.toLowerCase().includes('door') ? "text-blue-700 bg-blue-100 border-blue-200" : "text-gray-600 bg-gray-100 border-gray-200";
+                                    selectEl.className = `trade-select block w-full text-sm sm:text-xs font-semibold rounded p-2 sm:p-1.5 border border-gray-200 sm:border-transparent focus:border-indigo-300 print:hidden ${badgeClass} cursor-pointer`;
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    let calculatedHrs = estimateHours(value, actualTrade);
+
+                    if(foundItem) {
+                        task.price = foundItem.p;
+                        if ((descLower.includes('trash') || descLower.includes('debris') || descLower.includes('load') || descLower.includes('dumpster')) && (descLower.includes('appliance') || descLower.includes('fridge') || descLower.includes('stove') || descLower.includes('range') || descLower.includes('washer') || descLower.includes('dryer') || descLower.includes('oven'))) {
+                            task.baseHours = 0.25;
+                        } else if (descLower.includes('trash') || descLower.includes('debris') || descLower.includes('load') || descLower.includes('dumpster') || descLower.includes('trash out')) {
+                            task.baseHours = 1.0;
+                        } else if ((actualTrade.toLowerCase().includes('clean') || descLower.includes('clean') || descLower.includes('wipe')) && !descLower.includes('trash')) {
+                            task.baseHours = 0;
+                        } else {
+                            task.baseHours = foundItem.h !== "" ? foundItem.h : calculatedHrs;
+                        }
+                    } else {
+                        task.baseHours = calculatedHrs;
+                    }
+
+                    if (descLower === 'lvp install vinyl plank' || descLower === 'flooring - lvp install vinyl plank') {
+                        task.price = 6.00;
+                        task.baseHours = 0;
+                    }
+
+                    task.manualHours = ""; 
+
+                    const pInp = document.getElementById(`price-${id}`);
+                    if(pInp) pInp.value = task.price || 0;
+                    
+                    const hInp = document.getElementById(`hrs-${id}`);
+                    if(hInp) {
+                        let q = parseFloat(task.quantity);
+                        if(isNaN(q)) q = 1;
+                        hInp.value = (parseFloat(task.baseHours || 0) * q).toFixed(1);
+                    }
+                }
+
+                if (field === 'quantity') {
+                    const hInp = document.getElementById(`hrs-${id}`);
+                    if(hInp && (task.manualHours === "" || task.manualHours === undefined)) {
+                        let q = parseFloat(value);
+                        if(isNaN(q)) q = 0;
+                        hInp.value = (parseFloat(task.baseHours || 0) * q).toFixed(1);
+                    }
+                }
+                
+                saveData();
+                refreshTotals(); 
+            }
+        };
+
+        window.handleTradeChange = (id, selectElem) => {
+            const task = localTasks.find(t => t.id === id);
+            if(task) {
+                task.trade = selectElem.value;
+                const badgeClass = task.trade.toLowerCase().includes('door') ? "text-blue-700 bg-blue-100 border-blue-200" : "text-gray-600 bg-gray-100 border-gray-200";
+                selectElem.className = `trade-select block w-full text-sm sm:text-xs font-semibold rounded p-2 sm:p-1.5 border border-gray-200 sm:border-transparent focus:border-indigo-300 print:hidden ${badgeClass} cursor-pointer`;
+                
+                saveData();
+                refreshTotals();
+            }
+        };
+
+        window.addItem = (category) => {
+            const defTrade = TRADE_KEYS.includes("Doors") ? "Doors" : (TRADE_KEYS[0] || "General");
+            localTasks.push({
+                id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                category, trade: defTrade, description: "", quantity: 1, price: "", manualHours: "", baseHours: "", selected: true, photoData: [], createdAt: new Date().toISOString()
+            });
+            saveData();
+            renderAll(); 
+        };
+
+        window.deleteTask = (e, id) => {
+            if(e) { e.preventDefault(); e.stopPropagation(); }
+            localTasks = localTasks.filter(t => t.id !== id);
+            saveData();
+            renderAll(); 
+        };
+
+        window.resetData = (mode) => {
+            window.closeModal();
+            if(mode === 'wipe') {
+                localTasks = [];
+            } else if (mode === 'uncheck') {
+                localTasks.forEach(t => {
+                    t.selected = false;
+                    t.photoData = [];
+                });
+            }
+            
+            viewMode = 'all'; 
+            document.getElementById('btn-view-all').className = "px-3 py-1 text-xs font-semibold rounded-md bg-white shadow-sm text-gray-800 transition-all";
+            document.getElementById('btn-view-selected').className = "px-3 py-1 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-800 transition-all";
+            
+            saveData();
+            renderAll();
+        };
+
+        window.saveAddress = (val) => { metaData.address = val; saveData(); };
+        window.saveRate = (val) => { metaData.hourlyRate = val; saveData(); refreshTotals(); };
+        
+        window.setView = (mode) => { 
+            let activeCount = localTasks.filter(t => t.selected).length;
+            if (mode === 'selected' && activeCount === 0) {
+                alert("You have no active items! Showing all items.");
+                mode = 'all';
+            }
+            viewMode = mode; 
+            if (mode === 'all') {
+                document.getElementById('btn-view-all').className = "px-3 py-1 text-xs font-semibold rounded-md bg-white shadow-sm text-gray-800 transition-all";
+                document.getElementById('btn-view-selected').className = "px-3 py-1 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-800 transition-all";
+            } else {
+                document.getElementById('btn-view-all').className = "px-3 py-1 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-800 transition-all";
+                document.getElementById('btn-view-selected').className = "px-3 py-1 text-xs font-semibold rounded-md bg-white shadow-sm text-gray-800 transition-all";
+            }
+            document.getElementById('manage-menu').classList.add('hidden'); 
+            renderAll(); 
+        };
+
+        function escapeHtml(text) { return (text || "").toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+        
+        window.toggleSection = (header) => {
+            const container = header.parentElement;
+            const content = container.querySelector('.section-content');
+            const icon = header.querySelector('.chevron');
+            
+            if (content.style.display === 'none') { 
+                content.style.display = 'block'; 
+                icon.style.transform = 'rotate(0deg)'; 
+            } else { 
+                content.style.display = 'none'; 
+                icon.style.transform = 'rotate(-90deg)'; 
+            }
+        };
+
+        window.toggleMenu = function(e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            const m = document.getElementById('manage-menu');
+            if (m.classList.contains('hidden')) {
+                m.classList.remove('hidden');
+            } else {
+                m.classList.add('hidden');
+            }
+        };
+        
+        document.addEventListener('click', function(e) {
+            const menu = document.getElementById('manage-menu');
+            const btn = document.getElementById('menu-btn');
+            if (menu && !menu.classList.contains('hidden')) {
+                if (!menu.contains(e.target) && (!btn || !btn.contains(e.target))) {
+                    menu.classList.add('hidden');
+                }
+            }
+        });
+
+        window.openModal = (id) => {
+            document.getElementById('manage-menu').classList.add('hidden'); 
+            document.getElementById('modal-overlay').style.display = 'flex';
+            document.getElementById('modal-reset').style.display = 'block';
+        };
+        
+        window.closeModal = () => { 
+            document.getElementById('modal-overlay').style.display = 'none'; 
+        };
+    </script>
+</body>
+</html>
